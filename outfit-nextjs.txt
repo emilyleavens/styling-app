@@ -1,0 +1,532 @@
+# Outfit Inspo — Next.js Project
+
+## File structure
+
+```
+outfit-inspo/
+├── .env.local
+├── package.json
+├── tailwind.config.js
+├── app/
+│   ├── layout.tsx
+│   ├── page.tsx
+│   ├── globals.css
+│   └── api/
+│       └── claude/
+│           └── route.ts
+└── components/
+    └── OutfitApp.tsx
+```
+
+---
+
+## .env.local
+
+```
+ANTHROPIC_API_KEY=your_api_key_here
+```
+
+---
+
+## package.json
+
+```json
+{
+  "name": "outfit-inspo",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
+  },
+  "dependencies": {
+    "next": "14.2.3",
+    "react": "^18",
+    "react-dom": "^18",
+    "@tabler/icons-react": "^3.4.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "autoprefixer": "^10.0.1",
+    "postcss": "^8",
+    "tailwindcss": "^3.3.0",
+    "typescript": "^5"
+  }
+}
+```
+
+---
+
+## tailwind.config.js
+
+```js
+/** @type {import('tailwindcss').Config} */
+module.exports = {
+  content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}"],
+  theme: { extend: {} },
+  plugins: [],
+};
+```
+
+---
+
+## app/globals.css
+
+```css
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #faf9f7;
+  color: #1a1a1a;
+  min-height: 100vh;
+}
+
+input, button { font-family: inherit; }
+
+input[type="text"],
+input[type="date"] {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 0.5px solid #d4d0c8;
+  background: #fff;
+  color: #1a1a1a;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+input:focus { border-color: #888; }
+```
+
+---
+
+## app/layout.tsx
+
+```tsx
+import type { Metadata } from "next";
+import "./globals.css";
+
+export const metadata: Metadata = {
+  title: "What to Wear",
+  description: "Personal outfit recommendations styled for you",
+};
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <html lang="en">
+      <body>{children}</body>
+    </html>
+  );
+}
+```
+
+---
+
+## app/page.tsx
+
+```tsx
+import OutfitApp from "@/components/OutfitApp";
+
+export default function Home() {
+  return (
+    <main className="min-h-screen py-12 px-4">
+      <div className="max-w-xl mx-auto">
+        <OutfitApp />
+      </div>
+    </main>
+  );
+}
+```
+
+---
+
+## app/api/claude/route.ts
+
+```ts
+import { NextRequest, NextResponse } from "next/server";
+
+export async function POST(req: NextRequest) {
+  const body = await req.json();
+
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": process.env.ANTHROPIC_API_KEY!,
+      "anthropic-version": "2023-06-01",
+      "anthropic-beta": "web-search-2025-03-05",
+    },
+    body: JSON.stringify(body),
+  });
+
+  const data = await res.json();
+  return NextResponse.json(data);
+}
+```
+
+---
+
+## components/OutfitApp.tsx
+
+```tsx
+"use client";
+import { useState, useEffect } from "react";
+import {
+  IconMapPin, IconCalendar, IconArrowRight,
+  IconSun, IconCloud, IconCloudRain, IconSnowflake,
+  IconCloudStorm, IconAlertCircle,
+} from "@tabler/icons-react";
+
+// ── Profile ────────────────────────────────────────────────────────────────
+const PROFILE = {
+  height: "5'6.5\"", waist: "29.5 in", hips: "38 in",
+  inseam: "29 in", chest: "40 in",
+  bodyShape: "Inverted triangle / hourglass hybrid (bust 40in, hips 38in, waist 29.5in — defined waist, bust is widest point with strong hip curve)",
+  coloring: "Soft Autumn — fair skin with olive undertones, brown hair, blue eyes",
+  colorNotes: "Warm muted earthy tones: camel, warm taupe, dusty terracotta, sage, moss green, chocolate brown, dusty rose, warm ivory, burnt sienna. Avoid cool grays, icy pastels, stark white and black.",
+  styleProfile: "Romantic minimalist with boho undercurrent. Favorite brands: Reformation, Anthropologie, Everlane, Abercrombie, Free People. Loves collars (Peter Pan, pointed, detachable, button-downs) and vests (sweater, tailored, longline knit, puffer). Loves boxy cropped tops — always pair with high-waisted bottoms.",
+  fitNotes: "Always define waist with high-waisted bottoms when top is boxy/loose. No boxy full-length tops. Wide-leg or flared bottoms, wrap styles, V-necks. Shorter inseam (29in): ankle or cropped hems.",
+};
+
+const TRENDS = `2026 trends: quiet luxury/elevated minimalism, barrel-leg and wide-leg trousers, relaxed blazers, ballet flats/loafers/mary janes/kitten heels, maxi/midi skirts, soft drapey fabrics, lightweight knit layering, longline cardigans, trench and tailored coats. Denim: wide-leg, barrel, straight — NOT skinny.`;
+
+// ── API helper ─────────────────────────────────────────────────────────────
+async function callClaude(messages: object[], maxTokens = 1000, useSearch = false) {
+  const body: Record<string, unknown> = {
+    model: "claude-sonnet-4-20250514",
+    max_tokens: maxTokens,
+    messages,
+  };
+  if (useSearch) body.tools = [{ type: "web_search_20250305", name: "web_search" }];
+
+  const res = await fetch("/api/claude", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error("API error");
+  const data = await res.json();
+  return (data.content as { type: string; text?: string }[])
+    .filter((b) => b.type === "text")
+    .map((b) => b.text ?? "")
+    .join("\n");
+}
+
+function extractJSON(text: string) {
+  const match = text.match(/\{[\s\S]*\}/);
+  if (!match) throw new Error("No JSON found");
+  return JSON.parse(match[0]);
+}
+
+// ── Weather helpers ────────────────────────────────────────────────────────
+function weatherDesc(code: number) {
+  if (code === 0) return "Clear";
+  if (code <= 2) return "Partly cloudy";
+  if (code === 3) return "Overcast";
+  if (code <= 55) return "Drizzle";
+  if (code <= 67) return "Rain";
+  if (code <= 77) return "Snow";
+  if (code <= 82) return "Showers";
+  return "Stormy";
+}
+
+function WeatherIcon({ code }: { code: number }) {
+  const cls = "w-4 h-4";
+  if (code === 0) return <IconSun className={cls} />;
+  if (code <= 55) return <IconCloudRain className={cls} />;
+  if (code <= 77) return <IconSnowflake className={cls} />;
+  if (code <= 82) return <IconCloudStorm className={cls} />;
+  return <IconCloud className={cls} />;
+}
+
+// ── Shared UI ──────────────────────────────────────────────────────────────
+function Tag({ children, accent }: { children: React.ReactNode; accent?: boolean }) {
+  return (
+    <span className={`text-[11px] font-medium tracking-wide uppercase px-3 py-1 rounded-full border ${
+      accent
+        ? "bg-stone-900 text-stone-50 border-stone-900"
+        : "bg-stone-100 text-stone-500 border-stone-200"
+    }`}>
+      {children}
+    </span>
+  );
+}
+
+function Label({ children }: { children: string }) {
+  return <p className="text-[11px] font-medium tracking-widest uppercase text-stone-400 mb-2.5">{children}</p>;
+}
+
+function Divider() {
+  return <div className="border-t border-stone-100 my-6" />;
+}
+
+// ── Main component ─────────────────────────────────────────────────────────
+interface Piece { piece: string; desc: string; color: string; }
+interface OutfitResult {
+  vibe: string; headline: string; occasion: string; trendNote: string;
+  pieces: Piece[]; colorStory: string; stylistTip: string;
+  colorPalette: string[]; brandInspo: string[];
+  dateLabel: string; locationLabel: string; weatherSnap: string;
+}
+interface Weather { max: number; min: number; code: number; precip: number; current: number | null; }
+
+export default function OutfitApp() {
+  const [step, setStep] = useState<"form" | "loading" | "result">("form");
+  const [activity, setActivity] = useState("");
+  const [notes, setNotes] = useState("");
+  const [result, setResult] = useState<OutfitResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loadingMsg, setLoadingMsg] = useState("Building your look…");
+
+  const [locationInput, setLocationInput] = useState("Denver, Colorado");
+  const [locationLabel, setLocationLabel] = useState("Denver, Colorado, US");
+  const [locationCoords, setLocationCoords] = useState({ lat: 39.7392, lon: -104.9903 });
+  const [locationStatus, setLocationStatus] = useState<"idle" | "searching" | "resolved" | "error">("resolved");
+
+  const [weather, setWeather] = useState<Weather | null>(null);
+  const [weatherLoading, setWeatherLoading] = useState(false);
+  const [weatherError, setWeatherError] = useState(false);
+  const [selectedDate, setSelectedDate] = useState<"today" | "future">("today");
+  const [customDate, setCustomDate] = useState("");
+
+  const today = new Date();
+  const todayStr = today.toISOString().split("T")[0];
+  const maxDate = new Date(today); maxDate.setDate(today.getDate() + 7);
+  const maxDateStr = maxDate.toISOString().split("T")[0];
+
+  useEffect(() => { fetchWeather(39.7392, -104.9903, "Denver, Colorado, US", "today", ""); }, []);
+
+  const fetchWeather = async (lat: number, lon: number, label: string, dateMode: string, date: string) => {
+    setWeatherLoading(true); setWeather(null); setWeatherError(false);
+    const isFuture = dateMode === "future" && !!date;
+    try {
+      const text = await callClaude([{
+        role: "user",
+        content: `Search for the ${isFuture ? `weather forecast for ${label} on ${date}` : `current weather in ${label} today`} and return ONLY this JSON (no markdown): {"max":75,"min":55,"code":1,"precip":10,"current":68}. Temps in Fahrenheit. code=WMO (0=clear,1=mostly clear,2=partly cloudy,3=overcast,61=rain,71=snow,80=showers). precip=% 0-100. current=null if future.`
+      }], 200, true);
+      setWeather(extractJSON(text));
+    } catch { setWeatherError(true); }
+    setWeatherLoading(false);
+  };
+
+  const handleLocationSearch = async () => {
+    if (!locationInput.trim()) return;
+    setLocationStatus("searching"); setWeather(null);
+    try {
+      const text = await callClaude([{ role: "user", content: `GPS coordinates for "${locationInput}". Reply ONLY with JSON: {"lat":39.74,"lon":-104.99,"name":"Denver","country":"United States"}` }], 80);
+      const parsed = extractJSON(text);
+      if (!parsed.lat) throw new Error();
+      const label = `${parsed.name}, ${parsed.country}`;
+      setLocationCoords({ lat: parsed.lat, lon: parsed.lon });
+      setLocationLabel(label); setLocationStatus("resolved");
+      fetchWeather(parsed.lat, parsed.lon, label, selectedDate, customDate);
+    } catch { setLocationStatus("error"); }
+  };
+
+  const handleDateChange = (val: "today" | "future") => {
+    setSelectedDate(val);
+    if (val === "today") { setCustomDate(""); fetchWeather(locationCoords.lat, locationCoords.lon, locationLabel, "today", ""); }
+  };
+
+  const formatDate = (d: string) => new Date(d + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+
+  const weatherSummary = () => {
+    if (!weather) return "weather unknown";
+    const cur = weather.current != null ? `, currently ${weather.current}°F` : "";
+    return `${weatherDesc(weather.code)}, high ${weather.max}°F / low ${weather.min}°F${cur}, ${weather.precip}% chance of precipitation`;
+  };
+
+  const canGenerate = activity.trim() && (selectedDate === "today" || customDate) && locationStatus === "resolved";
+
+  const generate = async () => {
+    if (!canGenerate) return;
+    setStep("loading"); setError(null);
+    const dateLabel = selectedDate === "today" ? "today" : formatDate(customDate);
+    setLoadingMsg("Building your look…");
+
+    try {
+      const text = await callClaude([{ role: "user", content: `You are an expert personal stylist in 2026. Recommend only current on-trend styles.\n\n${TRENDS}\n\nClient:\n- Height: ${PROFILE.height}, inseam ${PROFILE.inseam}\n- Waist: ${PROFILE.waist}, hips: ${PROFILE.hips}, chest: ${PROFILE.chest}\n- Body shape: ${PROFILE.bodyShape}\n- Coloring: ${PROFILE.coloring}\n- Color guidance: ${PROFILE.colorNotes}\n- Style: ${PROFILE.styleProfile}\n- Fit notes: ${PROFILE.fitNotes}\n\nActivity: ${activity} (${dateLabel}) in ${locationLabel}\nWeather: ${weatherSummary()}\nNotes: ${notes || "none"}\n\nRules:\n- Incorporate collars and/or vests whenever natural\n- Boxy cropped tops welcome — always pair with high-waisted bottoms\n- Suggest pieces a Reformation/Anthropologie/Everlane/Abercrombie/Free People shopper would love\n- Warm muted palette only\n\nReply ONLY with JSON (no markdown):\n{"vibe":"2-3 word aesthetic","headline":"evocative outfit name 5-7 words","occasion":"one line why this works","trendNote":"one sentence on 2026 trends","pieces":[{"piece":"Top","desc":"specific silhouette and fabric","color":"color name"},{"piece":"Bottom","desc":"...","color":"..."},{"piece":"Layer","desc":"...","color":"..."},{"piece":"Shoes","desc":"...","color":"..."},{"piece":"Accessories","desc":"...","color":"..."}],"colorStory":"2 sentences on palette","stylistTip":"one specific actionable tip","colorPalette":["name1","name2","name3","name4"],"brandInspo":["Brand: specific piece or section"]}` }], 1200);
+      const outfit = extractJSON(text);
+      setResult({ ...outfit, dateLabel, locationLabel, weatherSnap: weatherSummary() });
+      setStep("result");
+    } catch {
+      setError("Something went wrong — try again.");
+      setStep("form");
+    }
+  };
+
+  // ── Loading ──────────────────────────────────────────────────────────────
+  if (step === "loading") return (
+    <div className="flex flex-col items-center justify-center gap-4 py-24 text-stone-400">
+      <div className="w-8 h-8 border border-stone-300 border-t-stone-700 rounded-full animate-spin" />
+      <p className="text-sm">{loadingMsg}</p>
+    </div>
+  );
+
+  // ── Result ───────────────────────────────────────────────────────────────
+  if (step === "result" && result) return (
+    <div className="space-y-0">
+      <div className="mb-6">
+        <div className="flex gap-2 flex-wrap mb-4">
+          <Tag accent>{result.vibe}</Tag>
+          <Tag><span className="flex items-center gap-1"><IconMapPin size={11} />{result.locationLabel}</span></Tag>
+          <Tag><span className="flex items-center gap-1"><IconCalendar size={11} />{result.dateLabel}</span></Tag>
+        </div>
+        <h1 className="text-2xl font-medium text-stone-900 leading-snug mb-3">{result.headline}</h1>
+        <p className="text-xs text-stone-400 mb-3">{result.weatherSnap}</p>
+        <p className="text-sm text-stone-500 leading-relaxed mb-2">{result.occasion}</p>
+        {result.trendNote && <p className="text-xs text-stone-400 italic leading-relaxed">{result.trendNote}</p>}
+      </div>
+
+      <Divider />
+
+      {result.colorPalette?.length > 0 && (
+        <div className="mb-6">
+          <Label>Color palette</Label>
+          <div className="flex gap-2 flex-wrap mb-3">
+            {result.colorPalette.map((c, i) => (
+              <span key={i} className="text-sm text-stone-500 bg-stone-100 px-3 py-1 rounded-full border border-stone-200">{c}</span>
+            ))}
+          </div>
+          {result.colorStory && <p className="text-xs text-stone-400 leading-relaxed">{result.colorStory}</p>}
+        </div>
+      )}
+
+      <Divider />
+
+      <div className="mb-6">
+        <Label>The outfit</Label>
+        {result.pieces?.map((p, i) => (
+          <div key={i} className={`py-3.5 ${i < result.pieces.length - 1 ? "border-b border-stone-100" : ""}`}>
+            <div className="flex justify-between items-start gap-3 mb-1">
+              <span className="text-[11px] font-medium tracking-widest uppercase text-stone-700">{p.piece}</span>
+              {p.color && <span className="text-xs text-stone-400 shrink-0">{p.color}</span>}
+            </div>
+            <p className="text-sm text-stone-500 leading-relaxed">{p.desc}</p>
+          </div>
+        ))}
+      </div>
+
+      <Divider />
+
+      {result.stylistTip && (
+        <div className="mb-6">
+          <Label>Stylist tip</Label>
+          <p className="text-sm text-stone-500 leading-relaxed pl-3 border-l-2 border-stone-200">{result.stylistTip}</p>
+        </div>
+      )}
+
+      {result.brandInspo?.length > 0 && (
+        <>
+          <Divider />
+          <div className="mb-6">
+            <Label>Shop the look</Label>
+            <div className="space-y-2">
+              {result.brandInspo.map((b, i) => (
+                <div key={i} className="flex items-start gap-2 text-sm text-stone-500">
+                  <IconArrowRight size={14} className="text-stone-300 mt-0.5 shrink-0" />
+                  {b}
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+
+      <Divider />
+
+      <div className="flex gap-3">
+        <button onClick={() => { setActivity(""); setNotes(""); setResult(null); setStep("form"); }}
+          className="flex-1 py-2.5 rounded-lg border border-stone-200 text-stone-700 text-sm hover:bg-stone-50 transition-colors">
+          New activity
+        </button>
+        <button onClick={generate}
+          className="flex-1 py-2.5 rounded-lg bg-stone-900 text-stone-50 text-sm font-medium hover:bg-stone-800 transition-colors">
+          Try another look
+        </button>
+      </div>
+    </div>
+  );
+
+  // ── Form ─────────────────────────────────────────────────────────────────
+  return (
+    <div>
+      <div className="mb-6">
+        <h1 className="text-xl font-medium text-stone-900 mb-1">What to wear</h1>
+        <p className="text-sm text-stone-400 mb-4">Styled for your measurements, coloring, and weather.</p>
+        <div className="flex gap-2 flex-wrap">
+          {["5'6.5\"", "Soft Autumn", "Romantic minimalist", "Loves collars & vests"].map(t => <Tag key={t}>{t}</Tag>)}
+        </div>
+      </div>
+
+      <Divider />
+
+      {error && <p className="text-red-500 text-sm mb-4">{error}</p>}
+
+      <div className="mb-5">
+        <Label>Location</Label>
+        <div className="flex gap-2">
+          <input value={locationInput} onChange={e => { setLocationInput(e.target.value); setLocationStatus("idle"); }}
+            onKeyDown={e => e.key === "Enter" && handleLocationSearch()}
+            placeholder="City, state or country" className="flex-1" />
+          <button onClick={handleLocationSearch}
+            className="px-4 py-2.5 rounded-lg border border-stone-200 text-stone-700 text-sm hover:bg-stone-50 transition-colors shrink-0">
+            {locationStatus === "searching" ? "…" : "Update"}
+          </button>
+        </div>
+        {locationStatus === "error" && <p className="text-red-500 text-xs mt-1">City not found — try again.</p>}
+        {locationStatus === "resolved" && (
+          <p className="text-xs text-stone-400 mt-1 flex items-center gap-1"><IconMapPin size={11} />{locationLabel}</p>
+        )}
+      </div>
+
+      <div className="mb-5">
+        <Label>When</Label>
+        <div className="flex gap-2 mb-3">
+          {(["today", "future"] as const).map(opt => (
+            <button key={opt} onClick={() => handleDateChange(opt)}
+              className={`px-4 py-1.5 rounded-full border text-sm transition-colors ${selectedDate === opt ? "bg-stone-900 text-stone-50 border-stone-900" : "border-stone-200 text-stone-500 hover:bg-stone-50"}`}>
+              {opt === "today" ? "Today" : "Another day"}
+            </button>
+          ))}
+        </div>
+        {selectedDate === "future" && (
+          <input type="date" min={todayStr} max={maxDateStr} value={customDate}
+            onChange={e => { setCustomDate(e.target.value); if (e.target.value) fetchWeather(locationCoords.lat, locationCoords.lon, locationLabel, "future", e.target.value); }}
+            className="mb-2" />
+        )}
+        <div className="flex items-center gap-2 text-sm text-stone-400 bg-stone-50 border border-stone-100 rounded-lg px-3 py-2.5">
+          {weatherLoading ? <><div className="w-3 h-3 border border-stone-300 border-t-stone-600 rounded-full animate-spin" /> Fetching forecast…</>
+            : weatherError ? <><IconAlertCircle size={14} /> Weather unavailable</>
+            : weather ? <><WeatherIcon code={weather.code} /> {weatherDesc(weather.code)} · {weather.max}° / {weather.min}°F{weather.current != null ? ` · now ${weather.current}°F` : ""} · {weather.precip}% precip</>
+            : selectedDate === "future" && !customDate ? "Pick a date to see the forecast"
+            : "Loading…"}
+        </div>
+      </div>
+
+      <div className="mb-6">
+        <Label>Activity</Label>
+        <input value={activity} onChange={e => setActivity(e.target.value)}
+          onKeyDown={e => e.key === "Enter" && generate()}
+          placeholder="e.g. ski day, rooftop dinner, farmers market, job interview…"
+          className="mb-2" />
+        <input value={notes} onChange={e => setNotes(e.target.value)}
+          placeholder="Anything else? e.g. want to wear a dress, no heels…" />
+      </div>
+
+      <button onClick={generate} disabled={!canGenerate}
+        className={`w-full py-3 rounded-lg text-sm font-medium transition-colors ${canGenerate ? "bg-stone-900 text-stone-50 hover:bg-stone-800" : "bg-stone-100 text-stone-300 cursor-not-allowed"}`}>
+        Style me
+      </button>
+    </div>
+  );
+}
+```
